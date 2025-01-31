@@ -20,7 +20,7 @@ A simple quiz app built with Next.js.
 
 
 #### **📌 Screenshots & Video Walkthrough**
-- Add images of your UI:
+- 
   ```markdown
   ## Screenshots
   ![Homepage](public/home-page.png)
@@ -32,4 +32,14 @@ A simple quiz app built with Next.js.
 🎥 **Video Walkthrough:** [Watch Here](https://www.awesomescreenshot.com/video/36106116?key=29b1f4d2425b8815662fa6d5a4695b9d)
 
 
+#### **📌 Screenshots**
+![Home Page](image.png)Home Page 
+
+![Quiz Page](image-1.png)Quiz Page
+
+![Quiz answer](image-2.png)Quiz answer
+
+![Quiz result](image-3.png)Quiz result
+
+![Quiz Detailed Solution](image-4.png)Quiz Detailed Solution
 
