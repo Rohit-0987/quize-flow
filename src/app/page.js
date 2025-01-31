@@ -4,38 +4,6 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Trophy, Timer, Star, Heart, Zap, Award, Target, Crown, Flame } from 'lucide-react';
 
-// Define sample quiz data
-const sampleQuizData = [
-  {
-    question: "What is the capital of France?",
-    options: ["London", "Berlin", "Paris", "Madrid"],
-    correctAnswer: "Paris",
-    difficulty: "easy",
-    points: 100
-  },
-  {
-    question: "Which planet is known as the Red Planet?",
-    options: ["Venus", "Mars", "Jupiter", "Saturn"],
-    correctAnswer: "Mars",
-    difficulty: "easy",
-    points: 100
-  },
-  {
-    question: "What is 2 + 2?",
-    options: ["3", "4", "5", "6"],
-    correctAnswer: "4",
-    difficulty: "easy",
-    points: 100
-  }
-];
-
-// Define difficulty multipliers
-const DIFFICULTY_MULTIPLIERS = {
-  easy: 1,
-  medium: 1.5,
-  hard: 2
-};
-
 const QuizApp = () => {
   // State declarations
   const [quizData, setQuizData] = useState(null);
@@ -55,22 +23,21 @@ const QuizApp = () => {
   });
   const [xp, setXp] = useState(0);
   const [level, setLevel] = useState(1);
-  const [achievements, setAchievements] = useState([]);
-  const [showPowerupEffect, setShowPowerupEffect] = useState(null);
+  const [mistakeCount, setMistakeCount] = useState(0);
 
   // Fetch quiz data
   useEffect(() => {
     const fetchQuiz = async () => {
       try {
-        const response = await fetch('/api/quiz'); // Fetch from our own API route
+        const response = await fetch('/api/quiz');
         if (!response.ok) throw new Error('Failed to fetch quiz data');
         const data = await response.json();
-        console.log(data)
         setQuizData(data);
+        // Initialize lives based on quiz data
+        setLives(data.max_mistake_count || 3);
       } catch (error) {
         console.error('Error fetching quiz data:', error);
-        setError('Using sample questions');
-        setQuizData(sampleQuizData); // Use fallback sample data
+        setError('Failed to load quiz');
       } finally {
         setIsLoading(false);
       }
@@ -92,15 +59,15 @@ const QuizApp = () => {
     return () => clearInterval(interval);
   }, [gameState, timer]);
 
-  // Start new quiz
   const startQuiz = () => {
     setGameState('playing');
     setCurrentQuestion(0);
     setScore(0);
-    setLives(3);
+    setLives(quizData?.max_mistake_count || 3);
     setStreak(0);
     setTimer(30);
     setError(null);
+    setMistakeCount(0);
     setPowerups({
       extraTime: 2,
       fiftyFifty: 1,
@@ -108,66 +75,56 @@ const QuizApp = () => {
     });
   };
 
-  // Handle power-up usage
   const handlePowerup = (type) => {
     if (powerups[type] <= 0) return;
 
     setPowerups(prev => ({ ...prev, [type]: prev[type] - 1 }));
-    setShowPowerupEffect(type);
-    setTimeout(() => setShowPowerupEffect(null), 1500);
 
     switch (type) {
       case 'extraTime':
         setTimer(prev => prev + 15);
         break;
       case 'fiftyFifty': {
-        const correctAnswer = quizData[currentQuestion].correctAnswer;
-        const incorrectOptions = quizData[currentQuestion].options.filter(
-          opt => opt !== correctAnswer
-        );
+        const currentQ = quizData.questions[currentQuestion];
+        const correctOption = currentQ.options.find(opt => opt.is_correct);
+        const incorrectOptions = currentQ.options.filter(opt => !opt.is_correct);
         const randomIncorrect = incorrectOptions[Math.floor(Math.random() * incorrectOptions.length)];
-        const newOptions = [correctAnswer, randomIncorrect].sort(() => Math.random() - 0.5);
-        setQuizData(prev => ({
-          ...prev,
-          [currentQuestion]: {
-            ...prev[currentQuestion],
-            options: newOptions
-          }
-        }));
+        const newOptions = [correctOption, randomIncorrect].sort(() => Math.random() - 0.5);
+        const updatedQuestions = [...quizData.questions];
+        updatedQuestions[currentQuestion] = { ...currentQ, options: newOptions };
+        setQuizData({ ...quizData, questions: updatedQuestions });
         break;
       }
       case 'extraLife':
         setLives(prev => prev + 1);
         break;
-      default:
-        break;
     }
   };
 
-  // Handle answer selection
-  const handleAnswer = (answer) => {
-    setSelectedAnswer(answer);
+  const handleAnswer = (option) => {
+    setSelectedAnswer(option);
     
     setTimeout(() => {
-      const correct = answer === quizData[currentQuestion].correctAnswer;
-      const questionDifficulty = quizData[currentQuestion].difficulty || 'easy';
-      const difficultyMultiplier = DIFFICULTY_MULTIPLIERS[questionDifficulty];
+      const correct = option?.is_correct || false;
+      const questionPoints = parseFloat(quizData.correct_answer_marks) || 4;
+      const negativePoints = parseFloat(quizData.negative_marks) || 1;
       
       if (correct) {
-        const streakBonus = streak >= 2 ? 50 : 0;
-        const timeBonus = Math.floor(timer / 2);
-        const basePoints = quizData[currentQuestion].points || 100;
-        const totalPoints = Math.floor((basePoints + streakBonus + timeBonus) * difficultyMultiplier);
+        const streakBonus = streak >= 2 ? questionPoints * 0.5 : 0;
+        const timeBonus = Math.floor(timer / 10);
+        const totalPoints = questionPoints + streakBonus + timeBonus;
         
         setScore(prev => prev + totalPoints);
         setStreak(prev => prev + 1);
-        setXp(prev => prev + Math.floor(totalPoints / 10));
+        setXp(prev => prev + Math.floor(totalPoints));
       } else {
+        setMistakeCount(prev => prev + 1);
         setLives(prev => prev - 1);
         setStreak(0);
+        setScore(prev => prev - negativePoints);
       }
 
-      if ((lives <= 1 && !correct) || currentQuestion + 1 >= quizData.length) {
+      if (mistakeCount + 1 >= quizData.max_mistake_count || currentQuestion + 1 >= quizData.questions.length) {
         setGameState('summary');
       } else {
         setCurrentQuestion(prev => prev + 1);
@@ -200,9 +157,7 @@ const QuizApp = () => {
             </div>
           </div>
           <CardTitle className="text-3xl font-bold text-center bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-blue-600">
-            {gameState === 'start' ? 'Epic Knowledge Quest!' : 
-             gameState === 'playing' ? `Challenge ${currentQuestion + 1}/${quizData.length}` :
-             'Quest Complete!'}
+            {quizData?.title || 'Quiz Challenge'}
           </CardTitle>
         </CardHeader>
 
@@ -213,22 +168,26 @@ const QuizApp = () => {
                 <div className="p-4 bg-gradient-to-br from-purple-100 to-blue-100 rounded-lg">
                   <h3 className="font-bold flex items-center justify-center mb-2">
                     <Trophy className="w-5 h-5 mr-2 text-yellow-500" />
-                    Rewards
+                    Quiz Info
                   </h3>
-                  <p className="text-sm">Earn XP, unlock achievements, level up!</p>
+                  <p className="text-sm">
+                    Questions: {quizData?.questions_count}<br />
+                    Max Mistakes: {quizData?.max_mistake_count}<br />
+                    Points per correct: {quizData?.correct_answer_marks}
+                  </p>
                 </div>
                 <div className="p-4 bg-gradient-to-br from-blue-100 to-purple-100 rounded-lg">
                   <h3 className="font-bold flex items-center justify-center mb-2">
                     <Zap className="w-5 h-5 mr-2 text-blue-500" />
                     Power-ups
                   </h3>
-                  <p className="text-sm">Use special abilities to overcome challenges!</p>
+                  <p className="text-sm">Use special abilities to help you succeed!</p>
                 </div>
               </div>
             </div>
           )}
 
-          {gameState === 'playing' && (
+          {gameState === 'playing' && quizData?.questions[currentQuestion] && (
             <div className="space-y-6">
               <div className="flex justify-between items-center p-4 bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg">
                 <div className="flex items-center space-x-1">
@@ -270,23 +229,23 @@ const QuizApp = () => {
 
               <div className="space-y-4">
                 <p className="text-xl font-medium text-center p-4 bg-gradient-to-r from-purple-100 to-blue-100 rounded-lg">
-                  {quizData[currentQuestion].question}
+                  {quizData.questions[currentQuestion].description}
                 </p>
                 <div className="grid grid-cols-1 gap-3">
-                  {quizData[currentQuestion].options.map((option, index) => (
+                  {quizData.questions[currentQuestion].options.map((option, index) => (
                     <Button
                       key={index}
                       onClick={() => handleAnswer(option)}
-                      className={`w-full p-6 text-lg transition-all transform hover:scale-105 ${
+                      className={`w-full p-6 text-lg text-black transition-all transform hover:scale-105 ${
                         selectedAnswer === option
-                          ? option === quizData[currentQuestion].correctAnswer
+                          ? option.is_correct
                             ? 'bg-green-500 hover:bg-green-600'
                             : 'bg-red-500 hover:bg-red-600'
                           : 'bg-white hover:bg-gray-100'
                       }`}
                       disabled={selectedAnswer !== null}
                     >
-                      {option}
+                      {option.description}
                     </Button>
                   ))}
                 </div>
@@ -302,8 +261,16 @@ const QuizApp = () => {
                   Final Score: {score}
                 </p>
                 <p className="text-xl">
-                  XP Gained: {Math.floor(score / 10)}
+                  XP Gained: {xp}
                 </p>
+                {quizData?.show_answers && (
+                  <Button 
+                    onClick={() => window.location.href = '/solutions'}
+                    className="mt-4"
+                  >
+                    View Solutions
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -316,7 +283,7 @@ const QuizApp = () => {
               size="lg"
               className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
             >
-              {gameState === 'start' ? 'Start Quest' : 'Play Again'}
+              {gameState === 'start' ? 'Start Quiz' : 'Try Again'}
             </Button>
           )}
         </CardFooter>
